@@ -1,0 +1,87 @@
+Use cWebView.pkg
+Use cWebPanel.pkg
+Use cWebForm.pkg
+Use cWebButton.pkg
+Use cWebGroup.pkg
+Use cWebSpacer.pkg
+Use cWebHtmlBox.pkg
+Use cWebMenuGroup.pkg
+Use cWebMenuItem.pkg
+Use cWebLabel.pkg
+Use cWebList.pkg
+Use cWebColumn.pkg
+Use cWebEdit.pkg
+
+Object oDashboard is a cWebView
+
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  
+    // Add a DDO Structure 
+    //
+    // There is no need to synchronize a DD structure on the client so we do
+    // not set the Server property or send ADDOStructure. We will simply use
+    // DDO's to mine data and generate HTML for our cWebHTMLBox objects.
+    // It is the HTML in these objects that is sent to the client each time 
+    // this page is shown.
+    //
+    // Also, it is important for the drill-down Navigation interface that we
+    // do not set the Server property to some DDO because this will affect 
+    // constraints in the next view that we navigate to.
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+    Set piMaxWidth to 1024
+    
+    Set psCaption to "Dashboard"
+    Set peViewType to vtUndefined
+    Set pbShowCaption to False
+    Set psCSSClass to "Dashboard"
+    Set pbServerOnShow to True
+
+    Object oWfInput is a cWebEdit
+        Set piColumnSpan to 0
+        Set psLabel to "Input"
+        Set psValue to ('<noClose><div>Self closing input tag <input type="text"/><iframe style="border: 1px solid black;"><span>Ibody</span></iframe>' + ;
+                        '</div><div Class="someclass" onClick="somefunc();">Click me</div><mine onClick="somefunc();"><noClose2>Yours</mine></noOpen>' +;
+                        ' This is some random text with < and other tags < like > in them')
+        Set piHeight to 200
+    End_Object
+
+    Object oWebButton1 is a cWebButton
+        Set piColumnSpan to 0
+        Set psCaption to "Sanitize"
+    
+        Procedure OnClick
+            String sInput sSanitized
+
+            WebGet psValue of oWfInput to sInput
+            
+            Get Sanitize of ghoSanitizer sInput to sSanitized
+            
+            WebSet psValue of oWfOutput to sSanitized
+            Send UpdateHtml of oWebHtmlBox1 sSanitized
+        End_Procedure
+    End_Object
+
+    Object oWfOutput is a cWebEdit
+        Set piColumnSpan to 0
+        Set psLabel to "Output"
+        Set piHeight to 200
+    End_Object
+
+    Object oWebHtmlBox1 is a cWebHtmlBox
+        Set piColumnSpan to 0
+        Set psLabel to "Rendered HTML"
+        Set psHtml to "HTML Box"
+        Set pbShowLabel to True
+    End_Object
+
+    Procedure OnShow
+        String sHtml
+        
+        Forward Send OnShow
+        
+        WebGet psValue of oWfInput to sHtml
+        Send UpdateHtml of oWebHtmlBox1 sHtml
+    End_Procedure
+    
+
+End_Object

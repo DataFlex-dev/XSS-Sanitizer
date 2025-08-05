@@ -1,0 +1,682 @@
+Define SANITIZE_MODE_ALLOWED        for 0
+Define SANITIZE_MODE_BLOCKED        for 1
+
+Define C_ATTR_FIND                  for 0
+Define C_ATTR_KEY                   for 1
+Define C_ATTR_VAL                   for 2
+
+
+Struct tHtmlTag
+    String sTag                 // Name of the html tag (div, iframe, etc.)
+    Integer iOpeningTagIndex    // Position of the html tag in de list of tokens
+    Integer iClosingTagIndex    // Position of the corresponding opening tag, -1 if none was found
+    Boolean bValidHtml          // Is this a valid HTML tag, or a self-created one?
+    Boolean bSanitize           // Flag whether this segment should be sanitized or note
+End_Struct
+
+//
+// Splits a string into an array of strings using the given delimiter.
+//
+// Params:
+//     sString     The string to split.
+//     sDel        The delimiter (like "," or "|")
+// Returns:
+//     Array of strings (including the delimiters itself on the lefthand side)
+Function StrSplitToArrayWithDelLeft Global String sString String sDel Returns String[]
+    String[] asResult
+    Integer iStart iEnd iDel
+    
+    If (sString <> "") Begin
+        
+        Move 1 to iStart
+        
+        Move (Length(sDel)) to iDel
+        Move (Pos(sDel, sString, iStart)) to iEnd
+        
+        If (iEnd > 0) Begin
+            While (iEnd > 0)
+                If (iStart > 1) Begin
+                    Move (iStart - iDel) to iStart
+                End
+                Move (Mid(sString,  iEnd - iStart, iStart)) to asResult[SizeOfArray(asResult)]
+                
+                Move (iEnd+iDel) to iStart
+                Move (Pos(sDel, sString, iStart)) to iEnd
+            Loop
+            
+            Move (iStart - iDel) to iStart
+            Move (Right(sString,  (Length(sString) - iStart + 1) )) to asResult[SizeOfArray(asResult)]
+        End
+        Else Begin
+            Move sString to asResult[0]
+        End
+    End
+    
+    
+    Function_Return asResult
+End_Function
+
+//
+// Splits a string into an array of strings using the given delimiter.
+//
+// Params:
+//     sString     The string to split.
+//     sDel        The delimiter (like "," or "|")
+// Returns:
+//     Array of strings (including the delimiters itself on the righthand side)
+Function StrSplitToArrayWithDelRight Global String sString String sDel Returns String[]
+    String[] asResult
+    Integer iStart iEnd iDel iLen
+    
+    If (sString <> "") Begin
+        
+        Move 1 to iStart
+        
+        Move (Length(sDel)) to iDel
+        Move (Pos(sDel, sString, iStart)) to iEnd
+        
+        If (iEnd > 0) Begin
+            While (iEnd > 0)
+                Move (Mid(sString,  (iEnd - iStart + iDel), iStart)) to asResult[SizeOfArray(asResult)]
+                
+                Move (iEnd + 1) to iStart
+                Move (Pos(sDel, sString, iStart)) to iEnd               
+            Loop
+            
+            Move (Length(sString)) to iLen
+            If (iStart <= iLen) Begin
+                Move (Right(sString,  (iLen - iStart + 1) )) to asResult[SizeOfArray(asResult)]
+            End            
+        End
+        Else Begin
+            Move sString to asResult[0]
+        End
+    End
+    
+    
+    Function_Return asResult
+End_Function
+
+Class cXssSanitizer is a cObject
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Property String[] pasAllowedTags
+        Property String[] pasForbiddenTags
+        Property String[] pasAllowedAttributes
+        Property String[] pasForbiddenAttributes
+        Property String[] pasVoidTags
+        
+        // Stores the tags to potentially sanitize
+        {Visibility = Private}
+        Property tHtmlTag[] paOpeningHtmlTags
+        
+        Property Boolean peSanitizeMode SANITIZE_MODE_ALLOWED
+    End_Procedure
+    
+    Procedure CleanUp
+        tHtmlTag[] aEmpty
+        
+        Set paOpeningHtmlTags to aEmpty
+    End_Procedure
+    
+    Function Sanitize String sInput Returns String
+        String[] asTokens
+        String sSanitized
+        
+        Get Parse sInput to asTokens
+        
+        Move (StrJoinFromArray(asTokens, "")) to sSanitized
+        
+        Function_Return sSanitized
+    End_Function
+    
+    {Visibility = Private}
+    Function Parse String sInput Returns String[]
+        String[] asTokens asTags
+        Integer i j iSize
+        String sEscapedToken
+        tHtmlTag[] aOpeningTags
+        tHtmlTag CurTag
+        
+        // This gives us all the items in the string that start with a "<" (and some that don't)
+        Move (StrSplitToArrayWithDelLeft(sInput, "<")) to asTokens
+        Move (SizeOfArray(asTokens)) to iSize
+        
+        Move 0 to i
+        
+        While (i < (SizeOfArray(asTokens)))
+            // Splitting the existing tokens on ">" should give us all the possible tags, separated from regular text / other content
+            Move (StrSplitToArrayWithDelRight(asTokens[i], ">")) to asTags
+            Move (SizeOfArray(asTags)) to iSize
+            
+            If (iSize > 1) Begin
+                Move (RemoveFromArray(asTokens, i)) to asTokens
+                
+                For j from 0 to (iSize - 1)
+                    Move (InsertInArray(asTokens, i, asTags[j])) to asTokens
+                    If (j < (iSize -1)) Begin
+                        Increment i
+                    End
+                Loop
+            End
+            
+            Increment i
+        Loop
+        
+        Move (SizeOfArray(asTokens)) to iSize
+        
+        If (iSize > 0) Begin
+            For i from 0 to (iSize -1)
+                Send ParseToken asTokens[i] i (&asTokens)
+            Loop
+        End
+        
+        Get paOpeningHtmlTags to aOpeningTags
+        Move (SizeOfArray(aOpeningTags)) to iSize
+        For i from 0 to (iSize - 1)
+            Move aOpeningTags[i] to CurTag
+            Get HtmlEscape asTokens[CurTag.iOpeningTagIndex] to sEscapedToken
+            If (CurTag.sTag <> sEscapedToken) Begin
+                Move sEscapedToken to asTokens[CurTag.iOpeningTagIndex]
+            End
+        Loop
+        
+        Send CleanUp
+        
+        Function_Return asTokens
+    End_Function
+    
+    {Visibility = Private}
+    Procedure ParseToken String sToken Integer iIndex String[] ByRef asTokens
+        Boolean bIsClosingTag bIsOpeningTag bAllowed bIsSelfClosingTag bIsVoidTag
+        String sTagDef sSanitizedToken
+        tHtmlTag HtmlTag
+        Integer iTagIndex
+        
+        // Check if this is a potential closing tag (starts with "</" and contains a ">" somewhere)
+            // Check if the closing tag exists somewhere in the list of opening tags
+                // If so, take the last occurrence and remove it
+                // Sanitize from open to close if needed
+            // If the tag was not found anywhere, we should soft sanitize it, replacing any "<" and ">" with HTML encodings
+            
+        Get IsClosingHtmlTag sToken (&sTagDef) to bIsClosingTag
+        If (bIsClosingTag) Begin
+            Get FindOpeningTag sTagDef (&HtmlTag) to iTagIndex
+            If (iTagIndex >= 0) Begin
+                If (HtmlTag.bSanitize) Begin
+                    Send SanitizeTokens (&asTokens) HtmlTag.iOpeningTagIndex iIndex
+                End
+                Send RemoveOpeningTag iTagIndex
+            End
+            Else Begin
+                Get HtmlEscape sToken to sSanitizedToken
+                If (sSanitizedToken <> sToken) Begin
+                    Move sSanitizedToken to asTokens[iIndex]
+                End
+            End
+            
+            Procedure_Return
+        End
+        
+        // Check if this is a potential opening tag (starts with "<" and contains a ">" somewhere)
+            // If so, check if this is a forbidden html tag
+                // If this tag is forbidden, mark it to be sanitized (we need to find the end point still)
+                // If this tag is allowed, we want to check for any malicious attributes
+            // Add the tag to the list of opening tags - we need to match this with closing tags, anything left over gets escaped at the end
+            // Edge case: if this is a self closing tag, we want to mark it as such
+            // Edge case: if this is a void tag, we want to mark it as such (SS, 21/05/2021)
+        Get IsOpeningHtmlTag sToken (&sTagDef) to bIsOpeningTag
+        If (bIsOpeningTag) Begin
+            Move sTagDef to HtmlTag.sTag
+            Move iIndex to HtmlTag.iOpeningTagIndex
+            
+            Get IsSelfClosingTag sToken to bIsSelfClosingTag
+            Get IsVoidTag sToken to bIsVoidTag
+            
+            Get IsAllowedHtmlTag sTagDef to bAllowed
+            If (not(bAllowed)) Begin
+                If (bIsSelfClosingTag or bIsVoidTag) Begin
+                    // Sanitize immediately
+                    Send SanitizeTokens (&asTokens) iIndex iIndex
+                End
+                Else Begin
+                    Move True to HtmlTag.bSanitize
+                End
+            End
+            Else Begin
+                Get SanitizeAttributes sToken bIsSelfClosingTag to sSanitizedToken
+                If (sSanitizedToken <> sToken) Begin
+                    Move sSanitizedToken to asTokens[iIndex]
+                End
+            End
+            
+            If (not(bIsSelfClosingTag) and not(bIsVoidTag)) Begin
+                Send AddOpeningTag HtmlTag
+            End
+
+            Procedure_Return
+        End
+        
+        // Anything that's not an opening or closing tag needs to have "<" and ">" escaped
+        Get HtmlEscape sToken to sSanitizedToken
+        If (sSanitizedToken <> sToken) Begin
+            Move sSanitizedToken to asTokens[iIndex]
+        End            
+    End_Procedure
+    
+    {Visibility = Private}
+    Function HtmlEscape String sToken Returns String
+        Move (Replaces("<", sToken, "&lt;")) to sToken
+        Move (Replaces(">", sToken, "&gt;")) to sToken
+        
+        Function_Return sToken
+    End_Function
+    
+    // Finds the last occurrence of an earlier stored opening html tag
+    // Places the tag in the passed HTML tag and returns the index of the tag if found. Returns -1 if not found
+    {Visibility = Private}
+    Function FindOpeningTag String sTagDef tHtmlTag ByRef HtmlTag Returns Integer
+        tHtmlTag[] aHtmlTags
+        Integer i iArrSize
+        
+        Get paOpeningHtmlTags to aHtmlTags
+        Move (SizeOfArray(aHtmlTags)) to iArrSize
+        Move (iArrSize - 1) to i
+        
+        While (i >= 0)
+            If (aHtmlTags[i].sTag = sTagDef) Begin
+                Move (aHtmlTags[i]) to HtmlTag
+                Function_Return i
+            End
+            
+            Decrement i
+        Loop
+        
+        Function_Return -1        
+    End_Function
+    
+    {Visibility = Private}
+    Procedure AddOpeningTag tHtmlTag HtmlTag
+        tHtmlTag[] aTags
+        
+        Get paOpeningHtmlTags to aTags
+        Move (InsertInArray(aTags, -1, HtmlTag)) to aTags
+        
+        Set paOpeningHtmlTags to aTags
+    End_Procedure
+    
+    {Visibility = Private}
+    Procedure RemoveOpeningTag Integer iIndex
+        tHtmlTag[] aTags
+        
+        Get paOpeningHtmlTags to aTags
+        Move (RemoveFromArray(aTags, iIndex)) to aTags
+        
+        Set paOpeningHtmlTags to aTags
+    End_Procedure
+    
+    {Visibility = Private}  
+    Procedure SanitizeTokens String[] ByRef asTokens Integer iStart Integer iEnd
+        Integer i
+        
+        // Sanitizing the tag effectively means blanking everything from the open to the closing tag
+        For i from iStart to iEnd
+            Move "" to asTokens[i]
+        Loop
+    End_Procedure
+    
+    {Visibility = Private}
+    Function SanitizeAttributes String sToken Boolean bSelfClosing Returns String
+        Boolean bStartsWith bEndsWith
+        Integer iIndex iLen iArrLen i iAttrStart iAttrEnd
+        Integer eMode // C_ATTR_FIND, C_ATTR_KEY, C_ATTR_VAL
+        String sTagDef sCurrChar sCurrAttr sWhiteSpace
+        String[] asTokenParts
+        
+        Get StartsWith sToken "<" to  bStartsWith
+        Get EndsWith sToken ">" to bEndsWith
+        
+        If (bStartsWith and bEndsWith) Begin
+            // First remove the opening and closing brackets, this takes care of a few edge cases
+            Move (Replace("<", sToken, "")) to sToken
+            If (bSelfClosing) Begin
+                Move (Replace("/>", sToken, "")) to sToken
+            End
+            Else Begin
+                Move (Replace(">", sToken, "")) to sToken
+            End
+            
+            // Go through the string to find attributes
+            Move (Length(sToken)) to iLen
+            For i from 1 to iLen
+                Move (Mid(sToken, 1, i)) to sCurrChar
+                If (i >= iLen) Begin
+                    Move (sCurrAttr + sCurrChar) to sCurrAttr
+                    Move sCurrAttr to asTokenParts[(SizeOfArray(asTokenParts))] 
+                End
+                Else Begin
+                    Case Begin
+                        Case (eMode = C_ATTR_FIND)
+                            // We are looking for anything that's not a whitespace or quote (assuming valid html, this should be a letter..)
+                            // If it is whitespace however, we want to preserve it
+                            If (sCurrChar = ' ') Begin
+                                Move (sWhiteSpace + sCurrChar) to sWhiteSpace
+                            End
+                            Else If (sCurrChar <> '"' and sCurrChar <> ' ') Begin
+                                If ( (Length(sWhiteSpace)) > 0) Begin
+                                    Move sWhiteSpace to asTokenParts[(SizeOfArray(asTokenParts))]
+                                    Move "" to sWhiteSpace
+                                End
+                                Move sCurrChar to sCurrAttr
+                                Move C_ATTR_KEY to eMode
+                            End
+                            Case Break
+                        Case (eMode = C_ATTR_KEY)
+                            If (sCurrChar = ' ') Begin
+                                Move C_ATTR_FIND to eMode
+                                Move sCurrAttr to asTokenParts[(SizeOfArray(asTokenParts))] 
+                                Move "" to sCurrAttr
+                                Move ' ' to sWhiteSpace
+                            End
+                            Else Begin
+                                Move (sCurrAttr + sCurrChar) to sCurrAttr
+                                // We are looking for the opening quote that marks the start of this attribute's value
+                                If (sCurrChar = '"') Begin
+                                    Move C_ATTR_VAL to eMode
+                                End
+                            End
+                            Case Break
+                        Case (eMode = C_ATTR_VAL)
+                            Move (sCurrAttr + sCurrChar) to sCurrAttr
+                            // We are looking for the closing quote that marks the end of this attribute's value (and the attribute in total)
+                            If (sCurrChar = '"') Begin
+                                Move C_ATTR_FIND to eMode
+                                Move sCurrAttr to asTokenParts[(SizeOfArray(asTokenParts))]
+                                Move "" to sCurrAttr
+                            End
+                            Case Break
+                    Case End
+                End
+            Loop
+
+            Move (SizeOfArray(asTokenParts)) to iLen
+            
+            // If this is valid html, we can assume the first portion to be the HTML tag and the rest to be atrributes
+            If (iLen > 1) Begin
+                For i from 1 to (iLen - 1)
+                    Get SanitizeAttribute asTokenParts[i] to asTokenParts[i]
+                Loop
+            End
+
+            Move (StrJoinFromArray(asTokenParts, "")) to sToken
+            If (bSelfClosing) Begin
+                Move ("<" + sToken + "/>") to sToken
+            End
+            Else Begin
+                Move ("<" + sToken + ">") to sToken
+            End
+        End
+        
+        Function_Return sToken
+    End_Function
+    
+    {Visibility = Private}
+    Function SanitizeAttribute String sAttribute Returns String
+        String[] asAttrParts
+        String sAttrName
+        Boolean bAllowed
+        // Attributes can be standalone or have a value, preceded by "="
+        
+        Move (StrSplitToArray(sAttribute, "=")) to asAttrParts
+        If (SizeOfArray(asAttrParts) > 0) Begin
+            Move asAttrParts[0] to sAttrName
+            Move (Lowercase(sAttrName)) to sAttrName
+            Get IsAllowedAttribute sAttrName to bAllowed
+            If (not(bAllowed)) Begin
+                Move "" to sAttribute
+            End
+        End
+        
+        Function_Return sAttribute
+    End_Function
+    
+    // Check if a string starts with a certain substring
+    {Visibility = Private}
+    Function StartsWith String sInput String sSubString Returns Boolean
+        Integer iPos
+        
+        Move (Pos(sSubString, sInput, 0)) to iPos
+        
+        Function_Return (iPos = 1)
+    End_Function
+    
+    // Check if a ends with a certain substring
+    {Visibility = Private}
+    Function EndsWith String sInput String sSubString Returns Boolean
+        Integer iPos iStrLen iSubStrLen
+        
+        Move (Length(sInput)) to iStrLen
+        Move (Length(sSubString)) to iSubStrLen
+        
+        Move (Pos(sSubString, sInput, 0)) to iPos
+        
+        Function_Return (iPos = (iStrLen - iSubStrLen + 1))
+    End_Function
+    
+    {Visibility = Private}
+    Function ExtractHtmlTag String sToken Returns String
+        String sHtmlTag
+        
+        Function_Return sHtmlTag
+    End_Function
+    
+    {Visibility = Private}
+    Function IsOpeningHtmlTag String sToken String ByRef sHtmlTag Returns Boolean
+        Boolean bStartsWith bEndsWith
+        Integer iLen i
+        String sTagDef
+        String[] asTokenParts
+        
+        Get StartsWith sToken "<" to  bStartsWith
+        Get EndsWith sToken ">" to bEndsWith
+        
+        If (bStartsWith and bEndsWith) Begin
+            // First remove the opening and closing brackets, this takes care of a few edge cases
+            Move (Replace("<", sToken, "")) to sToken
+            Move (Replace("/>", sToken, "")) to sToken
+            Move (Replace(">", sToken, "")) to sToken
+            
+            // Split so we remove any whitespace and separate the tag def from any attributes
+            Move (StrSplitToArray(sToken, " ")) to asTokenParts
+            
+            Move (SizeOfArray(asTokenParts)) to iLen
+            While (i < iLen)
+                If (asTokenParts[i] <> "" and asTokenParts[i] <> " ") Begin
+                    Move (Lowercase(asTokenParts[i])) to sHtmlTag
+                    Move iLen to i
+                End
+                
+                Increment i
+            Loop
+        End
+        
+        Function_Return (bStartsWith and bEndsWith)
+    End_Function
+    
+    {Visibility = Private}
+    Function IsClosingHtmlTag String sToken String ByRef sHtmlTag Returns Boolean
+        Boolean bStartsWith bEndsWith
+        Integer iIndex iLen i
+        String sTagDef
+        String[] asTokenParts
+        
+        Get StartsWith sToken "</" to  bStartsWith
+        Get EndsWith sToken ">" to bEndsWith
+        
+        If (bStartsWith and bEndsWith) Begin
+            // First remove the opening and closing brackets, this takes care of a few edge cases
+            Move (Replace("</", sToken, "")) to sToken
+            Move (Replace(">", sToken, "")) to sToken
+            
+            // Split so we remove any whitespace and separate the tag def from any attributes
+            Move (StrSplitToArray(sToken, " ")) to asTokenParts
+            
+            Move (SizeOfArray(asTokenParts)) to iLen
+            While (i < iLen)
+                If (asTokenParts[i] <> "" and asTokenParts[i] <> " ") Begin
+                    Move (Lowercase(asTokenParts[i])) to sHtmlTag
+                    Move iLen to i
+                End
+                
+                Increment i
+            Loop
+        End
+        
+        Function_Return (bStartsWith and bEndsWith)
+    End_Function
+    
+    // Check if the tag is an allowed void tag (SS, 21/05/2021)
+    {Visibility = Private}
+    Function IsVoidTag String sToken Returns Boolean
+        Integer i iSize
+        Boolean bIsVoidTag bStartsWith
+        String[] asVoidTags
+        
+        
+        Get pasVoidTags to asVoidTags
+        Move (SizeOfArray(asVoidTags) - 1) to iSize
+        
+        For i from 1 to iSize
+            Get StartsWith sToken ("<" + asVoidTags[i]) to bIsVoidTag
+            If (bIsVoidTag) Begin
+                Move iSize to i
+            End
+        Loop
+        
+        Function_Return bIsVoidTag
+    End_Function
+    
+    {Visibility = Private} 
+    Function IsSelfClosingTag String sToken Returns Boolean
+        Boolean bEndsWith
+        
+        Get EndsWith sToken "/>" to bEndsWith
+        
+        Function_Return bEndsWith
+    End_Function
+    
+    {Visibility = Private}
+    Function IsAllowedHtmlTag String sTagDef Returns Boolean
+        Integer iIndex eMode
+        Boolean bAllowed
+        
+        Get peSanitizeMode to eMode
+        
+        If (eMode = SANITIZE_MODE_ALLOWED) Begin
+            Move (SearchArray(sTagDef, pasAllowedTags(Self))) to iIndex
+            Move (iIndex >= 0) to bAllowed
+        End
+        Else Begin
+            Move (SearchArray(sTagDef, pasForbiddenTags(Self))) to iIndex
+            Move (iIndex = -1) to bAllowed
+        End
+        
+        Function_Return bAllowed
+    End_Function
+    
+    {Visibility = Private}
+    Function IsAllowedAttribute String sAttribute Returns Boolean
+        Integer iIndex eMode
+        Boolean bAllowed
+        
+        Get peSanitizeMode to eMode
+        
+        If (eMode = SANITIZE_MODE_ALLOWED) Begin
+            Move (SearchArray(sAttribute, pasAllowedAttributes(Self))) to iIndex
+            Move (iIndex >= 0) to bAllowed
+        End
+        Else Begin
+            Move (SearchArray(sAttribute, pasForbiddenAttributes(Self))) to iIndex
+            Move (iIndex = -1) to bAllowed
+        End
+        
+        Function_Return bAllowed
+    End_Function
+
+    Procedure SetAllowedTags String sTags String[] asTags
+        String[] asAllowedTags
+        
+        If (sTags <> "") Begin
+            Move (Lowercase(sTags)) to sTags
+            Move (StrSplitToArray(sTags, ",")) to asAllowedTags
+            Set pasAllowedTags to asAllowedTags
+        End
+        Else Begin
+            Set pasAllowedTags to asTags
+        End
+    End_Procedure
+    
+    Procedure SetForbiddenTags String sTags String[] asTags
+        String[] asForbiddenTags
+        
+        If (sTags <> "") Begin
+            Move (Lowercase(sTags)) to sTags
+            Move (StrSplitToArray(sTags, ",")) to asForbiddenTags
+            Set pasForbiddenTags to asForbiddenTags
+        End
+        Else Begin
+            Set pasForbiddenTags to asTags
+        End
+    End_Procedure
+
+    Procedure SetAllowedAttributes String sAttributes String[] asAttributes
+        String[] asAllowedAttributes
+        
+        If (sAttributes <> "") Begin
+            Move (Lowercase(sAttributes)) to sAttributes
+            Move (StrSplitToArray(sAttributes, ",")) to asAllowedAttributes
+            Set pasAllowedAttributes to asAllowedAttributes
+        End
+        Else Begin
+            Set pasAllowedAttributes to asAttributes
+        End
+    End_Procedure
+    
+    Procedure SetForbiddenAttributes String sAttributes String[] asAttributes
+        String[] asForbiddenAttributes
+        
+        If (sAttributes <> "") Begin
+            Move (Lowercase(sAttributes)) to sAttributes
+            Move (StrSplitToArray(sAttributes, ",")) to asForbiddenAttributes
+            Set pasForbiddenAttributes to asForbiddenAttributes
+        End
+        Else Begin
+            Set pasForbiddenAttributes to asAttributes
+        End
+    End_Procedure
+    
+    Procedure SetVoidTags String sVoidTags String[] asVoidTags
+        String[] asNewVoidTags
+        
+        If (sVoidTags <> "") Begin
+            Move (Lowercase(sVoidTags)) to sVoidTags
+            Move (StrSplitToArray(sVoidTags, ",")) to asNewVoidTags
+            Set pasVoidTags to asNewVoidTags
+        End
+        Else Begin
+            Set pasVoidTags to asVoidTags
+        End
+    End_Procedure
+    
+    Procedure Initialize
+        // Augment in implementation
+    End_Procedure
+    
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+        
+        Send Initialize
+    End_Procedure
+    
+End_Class

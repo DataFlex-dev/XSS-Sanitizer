@@ -1,0 +1,25 @@
+Use cXssSanitizer.pkg
+
+Global_Variable Handle ghoSanitizer
+
+Object oXssSanitizerStandard is a cXssSanitizer
+    
+    Move Self to ghoSanitizer
+    
+    Procedure Initialize
+        // Standard set of allowed ("safe") tags and attributes
+        Send SetAllowedTags of ghoSanitizer ( "a,abbr,address,area,article,aside,b,base,bdi,bdo,blockquote,br," + ;
+                                              "caption,cite,code,col,colgroup,data,datalist,dd,del,details,dfn,dialog,div,dl,dt," + ;
+                                              "em,figcaption,figure,footer,h1,h2,h3,h4,h5,h6," + ;
+                                              "header,hgroup,hr,i,img,ins,kbd,label,legend,li,link,main," + ;
+                                              "map,mark,math,meta,meter,nav,ol,optgroup,option,output,p,param," + ;
+                                              "picture,pre,q,rb,rp,rt, rtc,ruby,s,samp,section,slot,small," + ;
+                                              "source,span,strong,style,sub,summary,sup,svg,table,tbody,td,template," + ;
+                                              "tfoot,th,thead,time,title,tr,track,u,ul,var,wb")
+              
+        Send SetAllowedAttributes of ghoSanitizer "class,style,src" // can add "href" here too, but this is potentially unsafe as it allows JS execution on click
+        Send SetVoidTags of ghoSanitizer "area,base,br,col,command,embed,hr,img,input,keygen,link,meta,param,source,track,wbr"
+        Set peSanitizeMode of ghoSanitizer to SANITIZE_MODE_ALLOWED
+    End_Procedure
+    
+End_Object
