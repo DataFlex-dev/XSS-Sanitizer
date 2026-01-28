@@ -1,0 +1,13 @@
+{
+    "description": "Sanitize inputs to prevent XSS attacks.",
+    "df": 26.0,
+    "package": {
+        "df-max": 26.0,
+        "df-min": 26.0,
+        "icon": "Icon.png",
+        "version": "1.0.0"
+    },
+    "studio": {
+        "DefaultFormHeight": 12
+    }
+}
