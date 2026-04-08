@@ -539,22 +539,22 @@ Class cXssSanitizer is a cObject
     // Check if the tag is an allowed void tag (SS, 21/05/2021)
     {Visibility = Private}
     Function IsVoidTag String sToken Returns Boolean
-        Integer i iSize
-        Boolean bIsVoidTag bStartsWith
+        Integer iIndex
+        Boolean bIsOpeningTag
+        String sTagDef
         String[] asVoidTags
-        
-        
+
+        // Compare against the parsed tag name instead of the raw token text.
+        // Prefix checks can incorrectly classify tags like <linearGradient> as <line>.
+        Get IsOpeningHtmlTag sToken (&sTagDef) to bIsOpeningTag
+        If (not(bIsOpeningTag)) Begin
+            Function_Return False
+        End
+
         Get pasVoidTags to asVoidTags
-        Move (SizeOfArray(asVoidTags) - 1) to iSize
-        
-        For i from 1 to iSize
-            Get StartsWith sToken ("<" + asVoidTags[i]) to bIsVoidTag
-            If (bIsVoidTag) Begin
-                Move iSize to i
-            End
-        Loop
-        
-        Function_Return bIsVoidTag
+        Move (SearchArray(sTagDef, asVoidTags)) to iIndex
+
+        Function_Return (iIndex >= 0)
     End_Function
     
     {Visibility = Private} 
