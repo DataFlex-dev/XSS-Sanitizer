@@ -6,6 +6,7 @@ A DataFlex library for sanitizing HTML input to prevent cross-site scripting (XS
 
 - **Configurable Allowed/Forbidden Tags:** Specify which HTML tags are permitted or blocked.
 - **Configurable Allowed/Forbidden Attributes:** Control which tag attributes are allowed or forbidden.
+- **Attribute Value Validation:** Validates risky attribute contents such as `href`, `src`, and inline `style`.
 - **Void and Self-Closing Tag Support:** Handles HTML void tags and self-closing tags.
 - **Sanitization Modes:** Choose between allow-list or block-list modes for tags and attributes.
 - **Automatic Escaping:** Escapes unsafe content and tags not matching your configuration.
@@ -40,9 +41,13 @@ You can customize allowed tags and attributes:
 ```dataflex
 Send SetAllowedTags of ghoSanitizer "div,span,a,img"
 Send SetAllowedAttributes of ghoSanitizer "href,src,alt"
+Send SetUrlAttributes of ghoSanitizer "href,src"
+Send SetAllowedUrlSchemes of ghoSanitizer "http,https,mailto"
 Send SetVoidTags of ghoSanitizer "img,br,hr"
 Set peSanitizeMode of ghoSanitizer to SANITIZE_MODE_ALLOWED // or SANITIZE_MODE_BLOCKED
 ```
+
+Allowed attributes are now checked by both name and value. For URL-bearing attributes such as `href` and `src`, dangerous protocols like `javascript:` are stripped even when the attribute itself is allowed.
 
 ## Demo Dashboard
 
@@ -55,6 +60,8 @@ A demo dashboard is included (`Demo\AppSrc\Dashboard.wo`) for interactive testin
 - `SetForbiddenTags(String sTags)`: Comma-separated list of forbidden tags.
 - `SetAllowedAttributes(String sAttributes)`: Comma-separated list of allowed attributes.
 - `SetForbiddenAttributes(String sAttributes)`: Comma-separated list of forbidden attributes.
+- `SetUrlAttributes(String sAttributes)`: Attributes whose values should be treated as URLs and checked against an allowed scheme list.
+- `SetAllowedUrlSchemes(String sSchemes)`: Comma-separated list of allowed URL schemes for URL-bearing attributes.
 - `SetVoidTags(String sVoidTags)`: Comma-separated list of void/self-closing tags.
 - `peSanitizeMode`: Property to set allow-list or block-list mode.
 
