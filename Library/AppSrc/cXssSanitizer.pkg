@@ -1,4 +1,4 @@
-Define SANITIZE_MODE_ALLOWED        for 0
+﻿Define SANITIZE_MODE_ALLOWED        for 0
 Define SANITIZE_MODE_BLOCKED        for 1
 
 Define C_ATTR_FIND                  for 0
@@ -105,6 +105,8 @@ Class cXssSanitizer is a cObject
         Property String[] pasForbiddenTags
         Property String[] pasAllowedAttributes
         Property String[] pasForbiddenAttributes
+        Property String[] pasUrlAttributes
+        Property String[] pasAllowedUrlSchemes
         Property String[] pasVoidTags
         
         // Stores the tags to potentially sanitize
@@ -331,7 +333,7 @@ Class cXssSanitizer is a cObject
         Boolean bStartsWith bEndsWith
         Integer iIndex iLen iArrLen i iAttrStart iAttrEnd
         Integer eMode // C_ATTR_FIND, C_ATTR_KEY, C_ATTR_VAL
-        String sTagDef sCurrChar sCurrAttr sWhiteSpace
+        String sTagDef sCurrChar sCurrAttr sWhiteSpace sQuoteChar
         String[] asTokenParts
         
         Get StartsWith sToken "<" to  bStartsWith
@@ -363,7 +365,7 @@ Class cXssSanitizer is a cObject
                             If (sCurrChar = ' ') Begin
                                 Move (sWhiteSpace + sCurrChar) to sWhiteSpace
                             End
-                            Else If (sCurrChar <> '"' and sCurrChar <> ' ') Begin
+                            Else If (sCurrChar <> '"' and sCurrChar <> "'" and sCurrChar <> ' ') Begin
                                 If ( (Length(sWhiteSpace)) > 0) Begin
                                     Move sWhiteSpace to asTokenParts[(SizeOfArray(asTokenParts))]
                                     Move "" to sWhiteSpace
@@ -382,7 +384,8 @@ Class cXssSanitizer is a cObject
                             Else Begin
                                 Move (sCurrAttr + sCurrChar) to sCurrAttr
                                 // We are looking for the opening quote that marks the start of this attribute's value
-                                If (sCurrChar = '"') Begin
+                                If (sCurrChar = '"' or sCurrChar = "'") Begin
+                                    Move sCurrChar to sQuoteChar
                                     Move C_ATTR_VAL to eMode
                                 End
                             End
@@ -390,10 +393,11 @@ Class cXssSanitizer is a cObject
                         Case (eMode = C_ATTR_VAL)
                             Move (sCurrAttr + sCurrChar) to sCurrAttr
                             // We are looking for the closing quote that marks the end of this attribute's value (and the attribute in total)
-                            If (sCurrChar = '"') Begin
+                            If (sCurrChar = sQuoteChar) Begin
                                 Move C_ATTR_FIND to eMode
                                 Move sCurrAttr to asTokenParts[(SizeOfArray(asTokenParts))]
                                 Move "" to sCurrAttr
+                                Move "" to sQuoteChar
                             End
                             Case Break
                     Case End
@@ -424,21 +428,140 @@ Class cXssSanitizer is a cObject
     {Visibility = Private}
     Function SanitizeAttribute String sAttribute Returns String
         String[] asAttrParts
-        String sAttrName
+        String sAttrName sAttrValue
         Boolean bAllowed
+        Integer iEqPos
         // Attributes can be standalone or have a value, preceded by "="
+
+        // Preserve separator whitespace between attributes.
+        If (Trim(sAttribute) = "") Begin
+            Function_Return sAttribute
+        End
         
         Move (StrSplitToArray(sAttribute, "=")) to asAttrParts
         If (SizeOfArray(asAttrParts) > 0) Begin
-            Move asAttrParts[0] to sAttrName
+            Move (Trim(asAttrParts[0])) to sAttrName
             Move (Lowercase(sAttrName)) to sAttrName
             Get IsAllowedAttribute sAttrName to bAllowed
             If (not(bAllowed)) Begin
                 Move "" to sAttribute
             End
+            Else If (SizeOfArray(asAttrParts) > 1) Begin
+                Move (Pos("=", sAttribute)) to iEqPos
+                If (iEqPos > 0) Begin
+                    Move (Mid(sAttribute, (Length(sAttribute) - iEqPos), (iEqPos + 1))) to sAttrValue
+                End
+                Get IsSafeAttributeValue sAttrName sAttrValue to bAllowed
+                If (not(bAllowed)) Begin
+                    Move "" to sAttribute
+                End
+            End
         End
         
         Function_Return sAttribute
+    End_Function
+
+    {Visibility = Private}
+    Function NormalizeAttributeValue String sValue Returns String
+        Move (Trim(sValue)) to sValue
+        If (Length(sValue) >= 2) Begin
+            If ((Left(sValue, 1) = '"' and Right(sValue, 1) = '"') or ;
+                (Left(sValue, 1) = "'" and Right(sValue, 1) = "'")) Begin
+                Move (Mid(sValue, (Length(sValue) - 2), 2)) to sValue
+            End
+        End
+
+        Function_Return (Trim(sValue))
+    End_Function
+
+    {Visibility = Private}
+    Function StripUnsafeWhitespace String sValue Returns String
+        Move (Lowercase(sValue)) to sValue
+        Move (Replaces(" ", sValue, "")) to sValue
+        Move (Replaces(Character(9), sValue, "")) to sValue
+        Move (Replaces(Character(10), sValue, "")) to sValue
+        Move (Replaces(Character(13), sValue, "")) to sValue
+
+        Function_Return sValue
+    End_Function
+
+    {Visibility = Private}
+    Function IsSafeAttributeValue String sAttrName String sAttrValue Returns Boolean
+        String sNormalizedValue
+        Boolean bSafe
+
+        Move (Lowercase(Trim(sAttrName))) to sAttrName
+        Get NormalizeAttributeValue sAttrValue to sAttrValue
+        Get StripUnsafeWhitespace sAttrValue to sNormalizedValue
+
+        Move True to bSafe
+
+        If (sAttrName = "style") Begin
+            If (Pos("expression(", sNormalizedValue) > 0 or ;
+                Pos("javascript:", sNormalizedValue) > 0 or ;
+                Pos("vbscript:", sNormalizedValue) > 0 or ;
+                Pos("behavior:", sNormalizedValue) > 0 or ;
+                Pos("-moz-binding", sNormalizedValue) > 0 or ;
+                Pos("@import", sNormalizedValue) > 0) Begin
+                Move False to bSafe
+            End
+        End
+        Else If (SearchArray(sAttrName, pasUrlAttributes(Self)) >= 0) Begin
+            Get IsSafeUrlValue sAttrValue to bSafe
+        End
+
+        Function_Return bSafe
+    End_Function
+
+    {Visibility = Private}
+    Function IsSafeUrlValue String sValue Returns Boolean
+        Integer iColonPos iSlashPos iQuestionPos iHashPos iSchemeEnd iIndex
+        String sNormalizedValue sScheme
+        Boolean bSafe
+
+        Get NormalizeAttributeValue sValue to sValue
+        Move (Trim(sValue)) to sValue
+
+        If (sValue = "") Begin
+            Function_Return True
+        End
+
+        Get StripUnsafeWhitespace sValue to sNormalizedValue
+
+        If (Left(sNormalizedValue, 1) = "#" or ;
+            Left(sNormalizedValue, 1) = "/" or ;
+            Left(sNormalizedValue, 2) = "./" or ;
+            Left(sNormalizedValue, 3) = "../" or ;
+            Left(sNormalizedValue, 1) = "?") Begin
+            Function_Return True
+        End
+
+        If (Left(sNormalizedValue, 2) = "//") Begin
+            Function_Return False
+        End
+
+        Move (Pos(":", sNormalizedValue)) to iColonPos
+        If (iColonPos = 0) Begin
+            Function_Return True
+        End
+
+        Move (Pos("/", sNormalizedValue)) to iSlashPos
+        Move (Pos("?", sNormalizedValue)) to iQuestionPos
+        Move (Pos("#", sNormalizedValue)) to iHashPos
+        Move (Length(sNormalizedValue) + 1) to iSchemeEnd
+        If (iSlashPos > 0 and iSlashPos < iSchemeEnd) Move iSlashPos to iSchemeEnd
+        If (iQuestionPos > 0 and iQuestionPos < iSchemeEnd) Move iQuestionPos to iSchemeEnd
+        If (iHashPos > 0 and iHashPos < iSchemeEnd) Move iHashPos to iSchemeEnd
+
+        If (iColonPos > iSchemeEnd) Begin
+            Function_Return True
+        End
+
+        Move (Left(sNormalizedValue, (iColonPos - 1))) to sScheme
+        Move (SearchArray(sScheme, pasAllowedUrlSchemes(Self))) to iIndex
+        Move (iIndex >= 0) to bSafe
+
+        Function_Return bSafe
     End_Function
     
     // Check if a string starts with a certain substring
@@ -653,6 +776,32 @@ Class cXssSanitizer is a cObject
         End
         Else Begin
             Set pasForbiddenAttributes to asAttributes
+        End
+    End_Procedure
+
+    Procedure SetUrlAttributes String sAttributes String[] asAttributes
+        String[] asUrlAttributes
+
+        If (sAttributes <> "") Begin
+            Move (Lowercase(sAttributes)) to sAttributes
+            Move (StrSplitToArray(sAttributes, ",")) to asUrlAttributes
+            Set pasUrlAttributes to asUrlAttributes
+        End
+        Else Begin
+            Set pasUrlAttributes to asAttributes
+        End
+    End_Procedure
+
+    Procedure SetAllowedUrlSchemes String sSchemes String[] asSchemes
+        String[] asAllowedSchemes
+
+        If (sSchemes <> "") Begin
+            Move (Lowercase(sSchemes)) to sSchemes
+            Move (StrSplitToArray(sSchemes, ",")) to asAllowedSchemes
+            Set pasAllowedUrlSchemes to asAllowedSchemes
+        End
+        Else Begin
+            Set pasAllowedUrlSchemes to asSchemes
         End
     End_Procedure
     

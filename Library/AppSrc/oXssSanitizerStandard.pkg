@@ -18,6 +18,8 @@ Object oXssSanitizerStandard is a cXssSanitizer
                                               "tfoot,th,thead,time,title,tr,track,u,ul,var,wb")
               
         Send SetAllowedAttributes of ghoSanitizer "class,style,src" // can add "href" here too, but this is potentially unsafe as it allows JS execution on click
+        Send SetUrlAttributes of ghoSanitizer "href,src,action,formaction,poster,xlink:href"
+        Send SetAllowedUrlSchemes of ghoSanitizer "http,https,mailto,tel"
         Send SetVoidTags of ghoSanitizer "area,base,br,col,command,embed,hr,img,input,keygen,link,meta,param,source,track,wbr"
         Set peSanitizeMode of ghoSanitizer to SANITIZE_MODE_ALLOWED
     End_Procedure
