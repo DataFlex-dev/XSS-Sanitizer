@@ -24,6 +24,11 @@ Use oXssSanitizerStandard.pkg // Standard configuration
 
 This sets up a global sanitizer object (`ghoSanitizer`) with a safe default configuration.
 
+For HTML produced from Markdown, use `oXssSanitizerMarkdown.pkg`. It exposes
+`ghoMarkdownSanitizer` and uses a narrower allowlist with HTTP(S)-only links.
+Markdown must be parsed before this sanitizer is applied; this profile is for
+sanitizing the generated HTML, not for parsing Markdown source.
+
 ### 2. Sanitize HTML Input
 
 Call the `Sanitize` function to clean user input:
