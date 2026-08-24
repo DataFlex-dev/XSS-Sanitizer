@@ -1,0 +1,282 @@
+Use cXssSanitizer.pkg
+
+// Sanitizes Markdown source before it is stored or rendered. This is a
+// source-level policy; Sanitize remains the HTML sanitizer inherited from
+// cXssSanitizer.
+Class cXssMarkdownSanitizer is a cXssSanitizer
+
+    Function IsMarkdownWhitespace String sChar Returns Boolean
+        Function_Return (sChar = " " or sChar = Character(9) or sChar = Character(10) or sChar = Character(13))
+    End_Function
+
+    Function IsSafeMarkdownUrl String sValue Returns Boolean
+        String sNormalized
+
+        Move (Lowercase(Trim(sValue))) to sNormalized
+        If (Left(sNormalized, 7) <> "http://" and Left(sNormalized, 8) <> "https://") Begin
+            Function_Return False
+        End
+
+        If (Pos(" ", sNormalized) > 0 or Pos(Character(9), sNormalized) > 0 or ;
+            Pos(Character(10), sNormalized) > 0 or Pos(Character(13), sNormalized) > 0) Begin
+            Function_Return False
+        End
+
+        Function_Return True
+    End_Function
+
+    Function IsMarkdownHtmlCandidate String sValue Returns Boolean
+        String sTrimmed sFirst
+
+        Move (Trim(sValue)) to sTrimmed
+        If (sTrimmed = "") Begin
+            Function_Return False
+        End
+
+        Move (Left(sTrimmed, 1)) to sFirst
+        Function_Return (sFirst = "/" or sFirst = "!" or sFirst = "?" or ;
+            Pos(sFirst, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") > 0)
+    End_Function
+
+    // Remove an unsafe reference-link destination, for example:
+    // [release notes]: javascript:alert(1)
+    Function SanitizeMarkdownReferenceDefinition String sLine Returns String
+        Integer i iLabelEnd iColon iDestStart iDestEnd iLength
+        String sChar sDestination
+        Boolean bSafe
+
+        Move (Length(sLine)) to iLength
+        Move 1 to i
+        While (i <= iLength)
+            Move (Mid(sLine, 1, i)) to sChar
+            If (not(IsMarkdownWhitespace(Self, sChar))) Begin
+                Break
+            End
+            Increment i
+        Loop
+
+        If (i > iLength or Mid(sLine, 1, i) <> "[") Begin
+            Function_Return sLine
+        End
+
+        Move (Pos("]", sLine, i + 1)) to iLabelEnd
+        If (iLabelEnd = 0) Begin
+            Function_Return sLine
+        End
+
+        Move (iLabelEnd + 1) to iColon
+        While (iColon <= iLength and IsMarkdownWhitespace(Self, Mid(sLine, 1, iColon)))
+            Increment iColon
+        Loop
+
+        If (iColon > iLength or Mid(sLine, 1, iColon) <> ":") Begin
+            Function_Return sLine
+        End
+
+        Move (iColon + 1) to iDestStart
+        While (iDestStart <= iLength and IsMarkdownWhitespace(Self, Mid(sLine, 1, iDestStart)))
+            Increment iDestStart
+        Loop
+
+        If (iDestStart > iLength) Begin
+            Function_Return sLine
+        End
+
+        If (Mid(sLine, 1, iDestStart) = "<") Begin
+            Move (Pos(">", sLine, iDestStart + 1)) to iDestEnd
+            If (iDestEnd = 0) Begin
+                Function_Return sLine
+            End
+            Move (Mid(sLine, iDestEnd - iDestStart - 1, iDestStart + 1)) to sDestination
+        End
+        Else Begin
+            Move iDestStart to iDestEnd
+            While (iDestEnd <= iLength and not(IsMarkdownWhitespace(Self, Mid(sLine, 1, iDestEnd))))
+                Increment iDestEnd
+            Loop
+            Decrement iDestEnd
+            Move (Mid(sLine, iDestEnd - iDestStart + 1, iDestStart)) to sDestination
+        End
+
+        Get IsSafeMarkdownUrl sDestination to bSafe
+        If (not(bSafe)) Begin
+            Move (Left(sLine, iDestStart - 1) + Right(sLine, iLength - iDestEnd)) to sLine
+        End
+
+        Function_Return sLine
+    End_Function
+
+    Function SanitizeMarkdownLine String sLine Boolean ByRef bLinkDestinationPending Returns String
+        Integer i iLength iEnd iDestinationStart iDestinationEnd
+        String sResult sChar sDestination
+        Boolean bInlineCode bSafe
+
+        Get SanitizeMarkdownReferenceDefinition sLine to sLine
+        Move False to bLinkDestinationPending
+        Move (Length(sLine)) to iLength
+        Move 1 to i
+
+        While (i <= iLength)
+            Move (Mid(sLine, 1, i)) to sChar
+
+            If (sChar = "`") Begin
+                Move (sResult + sChar) to sResult
+                Move (not(bInlineCode)) to bInlineCode
+                Increment i
+            End
+            Else If (not(bInlineCode) and sChar = "<") Begin
+                // Remove comments as a complete token where possible.
+                If (Mid(sLine, 4, i) = "<!--") Begin
+                    Move (Pos("-->", sLine, i + 4)) to iEnd
+                    If (iEnd > 0) Begin
+                        Move (iEnd + 3) to i
+                    End
+                    Else Begin
+                        Move (iLength + 1) to i
+                    End
+                End
+                Else Begin
+                    Move (Pos(">", sLine, i + 1)) to iEnd
+                    If (iEnd > 0) Begin
+                        Move (Mid(sLine, iEnd - i - 1, i + 1)) to sDestination
+                        Get IsSafeMarkdownUrl sDestination to bSafe
+
+                        If (bSafe) Begin
+                            // Keep safe HTTP(S) autolinks intact.
+                            Move (sResult + Mid(sLine, iEnd - i + 1, i)) to sResult
+                            Move (iEnd + 1) to i
+                        End
+                        Else If (IsMarkdownHtmlCandidate(Self, sDestination)) Begin
+                            // Raw HTML is not part of the supported Markdown profile.
+                            Move (iEnd + 1) to i
+                        End
+                        Else Begin
+                            Move (sResult + "&lt;") to sResult
+                            Increment i
+                        End
+                    End
+                    Else Begin
+                        Move (sResult + "&lt;") to sResult
+                        Increment i
+                    End
+                End
+            End
+            Else If (not(bInlineCode) and sChar = "]" and i < iLength and Mid(sLine, 1, i + 1) = "](") Begin
+                Move (sResult + "](") to sResult
+                Move (i + 2) to i
+
+                While (i <= iLength and IsMarkdownWhitespace(Self, Mid(sLine, 1, i)))
+                    Move (sResult + Mid(sLine, 1, i)) to sResult
+                    Increment i
+                Loop
+
+                If (i <= iLength and Mid(sLine, 1, i) = "<") Begin
+                    Move i to iDestinationStart
+                    Move (Pos(">", sLine, i + 1)) to iDestinationEnd
+                    If (iDestinationEnd > 0) Begin
+                        Move (Mid(sLine, iDestinationEnd - iDestinationStart - 1, iDestinationStart + 1)) to sDestination
+                        Get IsSafeMarkdownUrl sDestination to bSafe
+                        If (bSafe) Begin
+                            Move (sResult + Mid(sLine, iDestinationEnd - iDestinationStart + 1, iDestinationStart)) to sResult
+                        End
+                        Move (iDestinationEnd + 1) to i
+                    End
+                    Else Begin
+                        Move (sResult + "&lt;") to sResult
+                        Increment i
+                    End
+                End
+                Else Begin
+                    Move i to iDestinationStart
+                    While (i <= iLength and not(IsMarkdownWhitespace(Self, Mid(sLine, 1, i))) and Mid(sLine, 1, i) <> ")")
+                        Increment i
+                    Loop
+                    Move (i - 1) to iDestinationEnd
+
+                    If (iDestinationEnd >= iDestinationStart) Begin
+                        Move (Mid(sLine, iDestinationEnd - iDestinationStart + 1, iDestinationStart)) to sDestination
+                        Get IsSafeMarkdownUrl sDestination to bSafe
+                        If (bSafe) Begin
+                            Move (sResult + sDestination) to sResult
+                        End
+                    End
+                End
+
+                If (i > iLength) Begin
+                    Move True to bLinkDestinationPending
+                End
+            End
+            Else Begin
+                Move (sResult + sChar) to sResult
+                Increment i
+            End
+        Loop
+
+        Function_Return sResult
+    End_Function
+
+    Function IsMarkdownFenceLine String sLine Returns Boolean
+        String sTrimmed
+
+        Move (Trim(sLine)) to sTrimmed
+        Function_Return (Left(sTrimmed, 3) = "```" or Left(sTrimmed, 3) = "~~~")
+    End_Function
+
+    Function SanitizeMarkdown String sInput Returns String
+        String[] asLines
+        String sResult sLine
+        Integer i iLines
+        Boolean bInFence bLinkDestinationPending
+
+        If (sInput = "") Begin
+            Function_Return ""
+        End
+
+        Move (StrSplitToArrayWithDelRight(sInput, Character(10))) to asLines
+        Move (SizeOfArray(asLines)) to iLines
+
+        For i from 0 to (iLines - 1)
+            Move asLines[i] to sLine
+            If (IsMarkdownFenceLine(Self, sLine)) Begin
+                Move (sResult + sLine) to sResult
+                Move (not(bInFence)) to bInFence
+                Move False to bLinkDestinationPending
+            End
+            Else If (bInFence) Begin
+                Move (sResult + sLine) to sResult
+                Move False to bLinkDestinationPending
+            End
+            Else If (bLinkDestinationPending) Begin
+                // Link destinations may continue on the next Markdown line.
+                // Reuse the link scanner with a synthetic opener, then remove
+                // that opener from the returned line.
+                Get SanitizeMarkdownLine ("](" + sLine) (&bLinkDestinationPending) to sLine
+                Move (Mid(sLine, Length(sLine) - 2, 3)) to sLine
+                Move (sResult + sLine) to sResult
+            End
+            Else Begin
+                Get SanitizeMarkdownLine sLine (&bLinkDestinationPending) to sLine
+                Move (sResult + sLine) to sResult
+            End
+
+            If (i < (iLines - 1)) Begin
+                Move (sResult + Character(10)) to sResult
+            End
+        Loop
+
+        If (Right(sInput, 1) = Character(10)) Begin
+            Move (sResult + Character(10)) to sResult
+        End
+
+        Function_Return sResult
+    End_Function
+
+    Procedure Initialize
+        Send SetAllowedTags ("a,blockquote,br,code,del,em,h1,h2,h3,h4,h5,h6,hr,li,ol,p,pre,strong,table,tbody,td,tfoot,th,thead,tr,ul")
+        Send SetAllowedAttributes "class,href,title"
+        Send SetUrlAttributes "href"
+        Send SetAllowedUrlSchemes "http,https"
+        Send SetVoidTags "br,hr"
+        Set peSanitizeMode to SANITIZE_MODE_ALLOWED
+    End_Procedure
+End_Class

@@ -1,18 +1,10 @@
-Use cXssSanitizer.pkg
+Use cXssMarkdownSanitizer.pkg
 
-// Strict output profile for HTML produced from Markdown.
-// Raw HTML, images, CSS, SVG and script-capable attributes are excluded.
+// Markdown source profile. Raw HTML and non-HTTP(S) links are removed before
+// Markdown is stored or handed to a browser parser. Sanitize remains available
+// for callers that need to sanitize generated HTML as a separate step.
 Global_Variable Handle ghoMarkdownSanitizer
 
-Object oXssSanitizerMarkdown is a cXssSanitizer
+Object oXssSanitizerMarkdown is a cXssMarkdownSanitizer
     Move Self to ghoMarkdownSanitizer
-
-    Procedure Initialize
-        Send SetAllowedTags ("a,blockquote,br,code,del,em,h1,h2,h3,h4,h5,h6,hr,li,ol,p,pre,strong,table,tbody,td,tfoot,th,thead,tr,ul")
-        Send SetAllowedAttributes "class,href,title"
-        Send SetUrlAttributes "href"
-        Send SetAllowedUrlSchemes "http,https"
-        Send SetVoidTags "br,hr"
-        Set peSanitizeMode to SANITIZE_MODE_ALLOWED
-    End_Procedure
 End_Object

@@ -24,10 +24,11 @@ Use oXssSanitizerStandard.pkg // Standard configuration
 
 This sets up a global sanitizer object (`ghoSanitizer`) with a safe default configuration.
 
-For HTML produced from Markdown, use `oXssSanitizerMarkdown.pkg`. It exposes
-`ghoMarkdownSanitizer` and uses a narrower allowlist with HTTP(S)-only links.
-Markdown must be parsed before this sanitizer is applied; this profile is for
-sanitizing the generated HTML, not for parsing Markdown source.
+For Markdown source, use `oXssSanitizerMarkdown.pkg`. It exposes
+`ghoMarkdownSanitizer` and removes raw HTML plus non-HTTP(S) Markdown link
+destinations while preserving fenced code blocks. Call `SanitizeMarkdown` before
+storing the source and again before returning it to a renderer. Its inherited
+`Sanitize` function remains available for sanitizing generated HTML separately.
 
 ### 2. Sanitize HTML Input
 
@@ -61,6 +62,7 @@ A demo dashboard is included (`Demo\AppSrc\Dashboard.wo`) for interactive testin
 ## API Reference
 
 - `Sanitize(String sInput)`: Returns sanitized HTML.
+- `SanitizeMarkdown(String sInput)`: Returns Markdown source with raw HTML and unsafe link destinations removed.
 - `SetAllowedTags(String sTags)`: Comma-separated list of allowed tags.
 - `SetForbiddenTags(String sTags)`: Comma-separated list of forbidden tags.
 - `SetAllowedAttributes(String sAttributes)`: Comma-separated list of allowed attributes.
