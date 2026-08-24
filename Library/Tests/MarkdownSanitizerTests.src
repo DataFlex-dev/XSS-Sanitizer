@@ -1,0 +1,41 @@
+Use Windows.pkg
+Use GlobalFunctionsProcedures.pkg
+Use cXssMarkdownSanitizer.pkg
+
+External_Function MarkdownTestsExitProcess "ExitProcess" Kernel32.dll Integer iExitCode Returns Integer
+
+Object oMarkdownSanitizer is a cXssMarkdownSanitizer
+End_Object
+
+Procedure RunMarkdownSanitizerTests
+    String sInput sOutput
+    Boolean bFailed
+    Integer iVoid
+
+    Move ("first" + Character(10) + "second" + Character(10)) to sInput
+    Get SanitizeMarkdown of oMarkdownSanitizer sInput to sOutput
+    If (sOutput <> sInput) Begin
+        Move True to bFailed
+    End
+
+    Move ("first" + Character(13) + Character(10) + "second") to sInput
+    Get SanitizeMarkdown of oMarkdownSanitizer sInput to sOutput
+    If (sOutput <> sInput) Begin
+        Move True to bFailed
+    End
+
+    Move ("```dataflex" + Character(10) + "Move 1 to iValue" + Character(10) + "```") to sInput
+    Get SanitizeMarkdown of oMarkdownSanitizer sInput to sOutput
+    If (sOutput <> sInput) Begin
+        Move True to bFailed
+    End
+
+    If (bFailed) Begin
+        Move (MarkdownTestsExitProcess(1)) to iVoid
+    End
+    Else Begin
+        Move (MarkdownTestsExitProcess(0)) to iVoid
+    End
+End_Procedure
+
+Send RunMarkdownSanitizerTests

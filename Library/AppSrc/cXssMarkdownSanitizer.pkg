@@ -232,6 +232,8 @@ Class cXssMarkdownSanitizer is a cXssSanitizer
             Function_Return ""
         End
 
+        // The splitter retains each LF, so concatenating the sanitized lines
+        // below preserves the input line endings without adding another LF.
         Move (StrSplitToArrayWithDelRight(sInput, Character(10))) to asLines
         Move (SizeOfArray(asLines)) to iLines
 
@@ -259,14 +261,7 @@ Class cXssMarkdownSanitizer is a cXssSanitizer
                 Move (sResult + sLine) to sResult
             End
 
-            If (i < (iLines - 1)) Begin
-                Move (sResult + Character(10)) to sResult
-            End
         Loop
-
-        If (Right(sInput, 1) = Character(10)) Begin
-            Move (sResult + Character(10)) to sResult
-        End
 
         Function_Return sResult
     End_Function
