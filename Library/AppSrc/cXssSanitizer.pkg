@@ -105,15 +105,18 @@ Class cXssSanitizer is a cObject
         Property String[] pasForbiddenTags
         Property String[] pasAllowedAttributes
         Property String[] pasForbiddenAttributes
+        Property String[] pasVoidTags
         Property String[] pasUrlAttributes
         Property String[] pasAllowedUrlSchemes
-        Property String[] pasVoidTags
         
         // Stores the tags to potentially sanitize
         {Visibility = Private}
         Property tHtmlTag[] paOpeningHtmlTags
         
         Property Boolean peSanitizeMode SANITIZE_MODE_ALLOWED
+
+        Send SetUrlAttributes "href,src,action,formaction,poster,xlink:href"
+        Send SetAllowedUrlSchemes "http,https,mailto,tel"
     End_Procedure
     
     Procedure CleanUp
@@ -431,17 +434,16 @@ Class cXssSanitizer is a cObject
         String sAttrName sAttrValue
         Boolean bAllowed
         Integer iEqPos
-        // Attributes can be standalone or have a value, preceded by "="
+        // Attributes can be standalone or have a value, preceded by "=".
 
         // Preserve separator whitespace between attributes.
         If (Trim(sAttribute) = "") Begin
             Function_Return sAttribute
         End
-        
+
         Move (StrSplitToArray(sAttribute, "=")) to asAttrParts
         If (SizeOfArray(asAttrParts) > 0) Begin
-            Move (Trim(asAttrParts[0])) to sAttrName
-            Move (Lowercase(sAttrName)) to sAttrName
+            Move (Lowercase(Trim(asAttrParts[0]))) to sAttrName
             Get IsAllowedAttribute sAttrName to bAllowed
             If (not(bAllowed)) Begin
                 Move "" to sAttribute
@@ -457,7 +459,7 @@ Class cXssSanitizer is a cObject
                 End
             End
         End
-        
+
         Function_Return sAttribute
     End_Function
 
@@ -563,6 +565,7 @@ Class cXssSanitizer is a cObject
 
         Function_Return bSafe
     End_Function
+
     
     // Check if a string starts with a certain substring
     {Visibility = Private}
@@ -804,7 +807,8 @@ Class cXssSanitizer is a cObject
             Set pasAllowedUrlSchemes to asSchemes
         End
     End_Procedure
-    
+
+
     Procedure SetVoidTags String sVoidTags String[] asVoidTags
         String[] asNewVoidTags
         

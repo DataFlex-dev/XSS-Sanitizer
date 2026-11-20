@@ -7,6 +7,7 @@ A DataFlex library for sanitizing HTML input to prevent cross-site scripting (XS
 - **Configurable Allowed/Forbidden Tags:** Specify which HTML tags are permitted or blocked.
 - **Configurable Allowed/Forbidden Attributes:** Control which tag attributes are allowed or forbidden.
 - **Attribute Value Validation:** Validates risky attribute contents such as `href`, `src`, and inline `style`.
+- **URL Validation:** Checks permitted URL schemes and rejects entity-obfuscated schemes in URL attributes. See [URL sanitization and regression tests](Help/URL-Sanitization.md).
 - **Void and Self-Closing Tag Support:** Handles HTML void tags and self-closing tags.
 - **Sanitization Modes:** Choose between allow-list or block-list modes for tags and attributes.
 - **Automatic Escaping:** Escapes unsafe content and tags not matching your configuration.
